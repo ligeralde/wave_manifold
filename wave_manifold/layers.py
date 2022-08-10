@@ -11,6 +11,7 @@ import numpy as np
 from sklearn import svm
 from sklearn.metrics import pairwise_distances
 from sklearn.metrics import hinge_loss
+import matplotlib.pyplot as plt
 
 class Retina(object):
     def __init__(self, n_neurons=3200, grid_length=32):
@@ -105,7 +106,6 @@ class Retina(object):
             return(fired_mask)
 
 
-
 class LGN(object):
     """Class for simulating the LGN. Creates a vector of cells which can  
         take input from the activities of a Retina object and output
@@ -148,9 +148,48 @@ class LGN(object):
 
         #optionally set GPU for pytorch
         self.device = device
-        
 
-    def pretrain_step(self, wave, eta=0.1):
+    
+    def pretrain(self, retina, timesteps=1000000, eta=0.1, plot_every=10000, track_every=None, data=None):
+        """Pre-trains LGN weights (processing layer) using either simulated waves from 
+        a Retina object instance or real retinal wave data. 
+
+        Args:
+        retina: instance of Retina object 
+        """
+
+        if track_every:
+            track_acts = torch.zeros((track_every, self.n_neurons))
+            track_intervals = timesteps//track_every 
+        
+        self.plot_rfs(retina)
+
+        for t in range(timesteps):
+            if data:
+                #for training on real data images
+                wave = data[:,t][:,None].type(torch.float)
+            
+            else:
+                #for training with simulated retinal waves 
+                wave = torch.tensor(retina.prop_wave())[:,None].type(torch.float)
+
+            self.pretrain_step(wave, eta=eta)
+
+            if track_every:
+                if (t > 0 and t % track_intervals == 0):
+                    track_acts[t//track_intervals, :] = self.max_pool_forward_pass(wave).squeeze()
+                
+            if (t > 0 and t % 1000 == 0): 
+                self.update_thresholds()
+                self.reset_activation_history()
+
+            if t % plot_every == 0:
+                plt.close()
+                print('iteration: {}'.format(t))
+                self.plot_rfs(retina)
+
+
+    def pretrain_step(self, wave, eta):
         """Computes activations given retinal input and updates synapses w/ Hebbian learning.
 
         Args:
@@ -243,6 +282,28 @@ class LGN(object):
         """Shortens acitvation history by just maintaining a running maximum of past activations. 
         """
         self.activations_history = torch.max(self.activations_history,axis=1).values
+
+
+    def plot_rfs(self, retina, idxs=None, mean_thresh=3, cmap='bwr', figsize=(12,12)):
+        if idxs is not None:
+            plot_len = np.sqrt(len(idxs)).astype('int')
+
+        else:
+            plot_len = np.sqrt(self.n_neurons).astype('int')
+            idxs = np.arange(self.n_neurons)
+
+        fig, axs = plt.subplots(n_rows=plot_len, n_cols=plot_len, figsize=figsize)
+
+        for idx, ax in zip(idxs, axs.ravel()):
+            rf = (self.weights[idx,:] - np.min(np.array(self.weights)))/np.max(np.array(self.weights))
+            ax.scatter(retina.pos[:,0], retina.pos[:,1], c=rf, marker='.', cmap=cmap)
+            ax.set_xlabel("")
+            ax.set_xticklabels([])
+            ax.set_xticks([])
+            ax.set_yticklabels([])
+            ax.set_yticks([])
+        
+        plt.show()
 
 
 
