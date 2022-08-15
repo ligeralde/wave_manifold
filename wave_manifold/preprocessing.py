@@ -2,10 +2,11 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import itertools
+from skimage import measure
 from layers import Retina
 
 class RetinalImageDataset(object):
-    def __init__(self, retina, raw_data, targets):
+    def __init__(self, retina, raw_data, targets=None):
         """Base class that loads an image dataset so it can be projected onto a retina
         ----------
         """
@@ -16,7 +17,7 @@ class RetinalImageDataset(object):
 
     def project_data_onto_retina(self, 
                                  classes=None, 
-                                 transform_data=None,
+                                 transform_data=False,
                                  equal_samples_per_class=False, 
                                  create_dict=True
                                  ):
@@ -94,6 +95,8 @@ class RetinalImageDataset(object):
         Returns: 
         dictionary of elements containing the indices of datapoints from each class
         """
+        if self.targets == None:
+            raise NotImplementedError
 
         #find the positions of each digit class in the dataset and add to dictionary
         class_idxs = dict()
@@ -108,8 +111,7 @@ class RetinalImageDataset(object):
 
         self.class_idxs = class_idxs
         
-#need to consider the manifolds - do you want to keep it as a dict? have a separate array? 
-#data loading should be customizble; can call super init in the child classes after you load the data. 
+
 
 class RetinalMNIST(RetinalImageDataset):
     def __init__(self, retina, train=True):
@@ -130,6 +132,14 @@ class RetinalMNIST(RetinalImageDataset):
                          raw_mnist.dataset.targets 
                         )
 
+
+    def project_data_onto_retina(self,
+                                 transform_data=True,
+                                 **kwargs
+                                 ):                          
+        super(RetinalMNIST, self).project_data_onto_retina(transform_data, **kwargs)
+
+
     def transform_data(self, imageset):
         """
         Pad MNIST digits with zero rows and columns to match size of the retina. 
@@ -146,37 +156,40 @@ class RetinalMNIST(RetinalImageDataset):
 
         return(big_digits)
 
-# class RetinalLargeImageDataset(RetinalImageDataset):
-#     def __init__(self, retina, train=True):
-#         """Class that loads a dataset larger than the projects it onto a model retina.
-#         ----------
-#         train : True to load training data, False to load testing data
-#         """
 
-#         #load MNIST data
-#         raw_mnist = torch.utils.data.DataLoader(MNIST('./data', train=train,
-#                                                         transform=transforms.Compose([
-#                                                             transforms.ToTensor(),
-#                                                             transforms.Normalize((0.1307,), (0.3081,))
-#                                                             ])))
 
-#         super().__init__(retina, 
-#                          raw_mnist.dataset.data, 
-#                          raw_mnist.dataset.targets 
-#                         )
+class RetinalLargeImageDataset(RetinalImageDataset):
+    def __init__(self, retina, raw_data):
+        """Class that loads a dataset larger than the projects it onto a model retina
+        by mean averaging. 
+        ----------
+        train : True to load training data, False to load testing data
+        """
 
-#     def transform_data(self, imageset):
-#         """
-#         Pad MNIST digits with zero rows and columns to match size of the retina. 
-#         """
-#         #get padding rows/columns that increase the digit images to match the length of the retina. 
-#         row_padding = torch.zeros(len(imageset), self.retina.grid_length - 28, 28)
-#         col_padding = torch.zeros(len(imageset), self.retina.grid_length, self.retina.grid_length - 28)
+        #load MNIST data
 
-#         #add rows and columns to images
-#         big_digits = torch.cat((imageset, row_padding), axis=1)
-#         big_digits = torch.cat((row_padding, imageset), axis=1)
-#         big_digits = torch.cat((imageset, col_padding), axis=2) 
-#         big_digits = torch.cat((col_padding, imageset), axis=2)
+        super().__init__(retina, 
+                         raw_data
+                        )
 
-#         return(big_digits)
+
+    def project_data_onto_retina(self,
+                                 transform_data=True,
+                                 **kwargs
+                                 ):                          
+        super(RetinalLargeImageDataset, self).project_data_onto_retina(transform_data, **kwargs)
+
+
+    def transform_data(self, imageset, block_size=4):
+        """
+        Mean pool images to reduce it to the size of the retina 
+        """
+        pooled_images = torch.tensor(np.array([self.pool_pixel_intensities(image, block_size) for image in imageset]))
+
+        return(pooled_images)
+
+    def pool_pixel_intensities(self, image, block_size):
+        """
+         Mean pool one
+        """
+        return(measure.block_reduce(image, block_size, np.mean))
