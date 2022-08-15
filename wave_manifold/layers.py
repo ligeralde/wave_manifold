@@ -26,7 +26,8 @@ class Retina(object):
         self.n_neurons = n_neurons
 
         #get uniform random distributed positions in grid
-        self.pos = grid_length*np.random.rand(n_neurons, 2) 
+        self.grid_length = grid_length
+        self.pos = self.grid_length*np.random.rand(n_neurons, 2) 
 
         #rate for updating the voltage leak 
         self.a = 0.02*np.ones(n_neurons) 
