@@ -165,6 +165,9 @@ class LGN(object):
         
         self.plot_rfs(retina)
 
+        if data:
+            timesteps = data.shape[-1]
+
         for t in range(timesteps):
             if data:
                 #for training on real data images
@@ -293,7 +296,7 @@ class LGN(object):
             plot_len = np.sqrt(self.n_neurons).astype('int')
             idxs = np.arange(self.n_neurons)
 
-        fig, axs = plt.subplots(n_rows=plot_len, n_cols=plot_len, figsize=figsize)
+        fig, axs = plt.subplots(nrows=plot_len, ncols=plot_len, figsize=figsize)
 
         for idx, ax in zip(idxs, axs.ravel()):
             rf = (self.weights[idx,:] - np.min(np.array(self.weights)))/np.max(np.array(self.weights))
@@ -379,7 +382,7 @@ class FunctionalLGN(LGN):
         """
 
         hidden_rep = self.hidden_forward_pass(batch, pool)
-        self.svm_classifier.fit(np.array(hidden_rep.T), np.array(targets))
+        self.svm_classifier.fit(hidden_rep.T, targets)
     
 
     def evaluate_svm_performance(self, batch, targets, pool=False):
@@ -401,9 +404,9 @@ class FunctionalLGN(LGN):
         predicted_targets = self.svm_classifier.predict(np.array(hidden_rep.T))
 
         #evaluate loss and accuracy
-        loss = hinge_loss(targets, predicted_targets)
+        # loss = hinge_loss(targets, predicted_targets)
         acc = self.get_svm_accuracy(targets, predicted_targets)
-        return(loss, acc)
+        return(acc)
 
 
     def get_svm_accuracy(self, predicted_targets, true_targets):

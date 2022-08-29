@@ -1,9 +1,12 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from torchvision.datasets import MNIST
+import torchvision.transforms as transforms 
 import itertools
+from xml.dom import NotFoundErr
 from skimage import measure
-from layers import Retina
+from wave_manifold.layers import Retina
 
 class RetinalImageDataset(object):
     def __init__(self, retina, raw_data, targets=None):
@@ -14,13 +17,14 @@ class RetinalImageDataset(object):
         self.retina = retina
         self.raw_data = raw_data
         self.targets = targets
+        self.retinal_imageset = None
 
     def project_data_onto_retina(self, 
-                                 classes=None, 
-                                 transform_data=False,
-                                 equal_samples_per_class=False, 
-                                 create_dict=True
-                                 ):
+                                transform_data=False,
+                                classes=None, 
+                                equal_samples_per_class=False, 
+                                create_dict=True
+                                ):
         """
         Projects data onto the retina
         Args:
@@ -28,13 +32,19 @@ class RetinalImageDataset(object):
         digit_classes: list of which digit classes to include (default is 0/1)
         equal_samples_per_class: 
         """
+        if self.targets is not None:
 
-        #select classes to transform:
-        if classes:
+            #if no classes are specified, get all classes
+            if classes == None:
+                classes = list(np.array(torch.unique(self.targets)))
+
+            #sort dataset by classes
             self.select_classes(classes, equal_samples_per_class=equal_samples_per_class)
-            idxs = list(itertools.chain.from_iterable(list(self.class_idxs.values())))
-            imageset = self.raw_data[idxs,:,:]
+            class_idx_list = list(itertools.chain.from_iterable(list(self.class_idxs.values())))
+            imageset = self.raw_data[class_idx_list,:,:]
+            self.targets = self.targets[class_idx_list]
 
+        #if there are no targets specified 
         else:
             imageset = self.raw_data
 
@@ -65,16 +75,29 @@ class RetinalImageDataset(object):
                 if image[raw_ypos, raw_xpos] > image.mean():
                     retinal_imageset[cell, idx] = 1
                 
-                if idx%100 == 0:
-                    print('Processed image {} out of {}'.format(idx, len(imageset)))
+            if idx%1000 == 0:
+                print('Processed image {} out of {}'.format(idx, len(imageset)))
 
         self.retinal_imageset = retinal_imageset
 
         #add a dictionary 
-        if create_dict == True:
-            retinal_imageset_dict = dict()
-            for one_class, idxs in self.class_idxs:
-                retinal_imageset_dict[one_class] = self.retinal_imageset[:,idxs] 
+        if self.targets is not None and create_dict == True:
+            self.create_class_dictionary()
+    
+
+    def create_class_dictionary(self):
+        if self.targets == None or self.retinal_imageset == None:
+            raise NotFoundErr
+        
+        class_length = lambda one_class : len(self.class_idxs[one_class])
+        
+        retinal_imageset_dict = dict()
+        start_idx = 0
+        for one_class in self.class_idxs.keys():
+            retinal_imageset_dict[one_class] = self.retinal_imageset[:,start_idx:start_idx+class_length(one_class)]
+            start_idx += class_length(one_class)
+        
+        self.retinal_imageset_dict = retinal_imageset_dict
 
 
     def transform_data(self):
@@ -121,7 +144,7 @@ class RetinalMNIST(RetinalImageDataset):
         """
 
         #load MNIST data
-        raw_mnist = torch.utils.data.DataLoader(MNIST('./data', train=train,
+        raw_mnist = torch.utils.data.DataLoader(MNIST('../data', train=train, download=True,
                                                         transform=transforms.Compose([
                                                             transforms.ToTensor(),
                                                             transforms.Normalize((0.1307,), (0.3081,))
@@ -145,14 +168,14 @@ class RetinalMNIST(RetinalImageDataset):
         Pad MNIST digits with zero rows and columns to match size of the retina. 
         """
         #get padding rows/columns that increase the digit images to match the length of the retina. 
-        row_padding = torch.zeros(len(imageset), self.retina.grid_length - 28, 28)
-        col_padding = torch.zeros(len(imageset), self.retina.grid_length, self.retina.grid_length - 28)
+        row_padding = torch.zeros(len(imageset), (self.retina.grid_length - 28)//2, 28)
+        col_padding = torch.zeros(len(imageset), self.retina.grid_length, (self.retina.grid_length - 28)//2)
 
         #add rows and columns to images
         big_digits = torch.cat((imageset, row_padding), axis=1)
-        big_digits = torch.cat((row_padding, imageset), axis=1)
-        big_digits = torch.cat((imageset, col_padding), axis=2) 
-        big_digits = torch.cat((col_padding, imageset), axis=2)
+        big_digits = torch.cat((row_padding, big_digits), axis=1)
+        big_digits = torch.cat((big_digits, col_padding), axis=2) 
+        big_digits = torch.cat((col_padding, big_digits), axis=2)
 
         return(big_digits)
 
@@ -187,6 +210,7 @@ class RetinalLargeImageDataset(RetinalImageDataset):
         pooled_images = torch.tensor(np.array([self.pool_pixel_intensities(image, block_size) for image in imageset]))
 
         return(pooled_images)
+
 
     def pool_pixel_intensities(self, image, block_size):
         """
